@@ -3,6 +3,16 @@ from google.cloud import bigquery
 
 app = FastAPI()
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 PROJECT_ID = "mgmt54500-project"
 DATASET = "property_mgmt"
 
@@ -20,7 +30,7 @@ def get_bq_client():
 
 
 # ---------------------------------------------------------------------------
-# Properties
+# Properties Endpoints (2)
 # ---------------------------------------------------------------------------
 
 @app.get("/properties")
@@ -53,3 +63,159 @@ def get_properties(bq: bigquery.Client = Depends(get_bq_client)):
 
     properties = [dict(row) for row in results]
     return properties
+
+@app.get("/properties/{property_id}")
+def get_property(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+    query = f"""
+        SELECT *
+        FROM `{PROJECT_ID}.{DATASET}.properties`
+        WHERE property_id = '{property_id}'
+    """
+
+    results = bq.query(query).result()
+    data = [dict(row) for row in results]
+
+    if not data:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    return data[0]
+
+#--------------------------------------------------------#
+# Income Endpoints
+#--------------------------------------------------------#
+
+@app.get("/income/{property_id}")
+def get_income(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+    query = f"""
+        SELECT *
+        FROM `{PROJECT_ID}.{DATASET}.income`
+        WHERE property_id = '{property_id}'
+    """
+    results = bq.query(query).result()
+    return [dict(row) for row in results]
+
+from pydantic import BaseModel
+import uuid
+
+class Income(BaseModel):
+    amount: float
+    source: str
+
+@app.post("/income/{property_id}")
+def add_income(property_id: str, income: Income, bq: bigquery.Client = Depends(get_bq_client)):
+    row = {
+        "income_id": str(uuid.uuid4()),
+        "property_id": property_id,
+        "amount": income.amount,
+        "source": income.source
+    }
+
+    table_id = f"{PROJECT_ID}.{DATASET}.income"
+    errors = bq.insert_rows_json(table_id, [row])
+
+    if errors:
+        raise HTTPException(status_code=500, detail=str(errors))
+
+    return {"message": "Income added", "data": row}
+
+# -------------------------------------------------------------------------------
+# Expense Endpoints
+# -------------------------------------------------------------------------------
+
+@app.get("/expenses/{property_id}")
+def get_expenses(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+    query = f"""
+        SELECT *
+        FROM `{PROJECT_ID}.{DATASET}.expenses`
+        WHERE property_id = '{property_id}'
+    """
+    results = bq.query(query).result()
+    return [dict(row) for row in results]
+
+class Expense(BaseModel):
+    amount: float
+    category: str
+
+@app.post("/expenses/{property_id}")
+def add_expense(property_id: str, expense: Expense, bq: bigquery.Client = Depends(get_bq_client)):
+    row = {
+        "expense_id": str(uuid.uuid4()),
+        "property_id": property_id,
+        "amount": expense.amount,
+        "category": expense.category
+    }
+
+    table_id = f"{PROJECT_ID}.{DATASET}.expenses"
+    errors = bq.insert_rows_json(table_id, [row])
+
+    if errors:
+        raise HTTPException(status_code=500, detail=str(errors))
+
+    return {"message": "Expense added", "data": row}
+
+# ----------------------------------------------------------------------------------
+# 4 additional endpoints
+# ----------------------------------------------------------------------------------
+
+# 1) Create a Property
+class Property(BaseModel):
+    name: str
+    address: str
+    city: str
+    state: str
+    postal_code: str
+    property_type: str
+    tenant_name: str
+    monthly_rent: float
+
+
+@app.post("/properties")
+def create_property(property: Property, bq: bigquery.Client = Depends(get_bq_client)):
+    row = {
+        "property_id": str(uuid.uuid4()),
+        **property.dict()
+    }
+
+    table_id = f"{PROJECT_ID}.{DATASET}.properties"
+    errors = bq.insert_rows_json(table_id, [row])
+
+    if errors:
+        raise HTTPException(status_code=500, detail=str(errors))
+
+    return {"message": "Property created", "data": row}
+
+# 2) Delete a Property
+@app.delete("/properties/{property_id}")
+def delete_property(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+    query = f"""
+        DELETE FROM `{PROJECT_ID}.{DATASET}.properties`
+        WHERE property_id = '{property_id}'
+    """
+    bq.query(query)
+
+    return {"message": "Property deleted"}
+
+#3) Total Income Summary
+@app.get("/summary/income/{property_id}")
+def total_income(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+    query = f"""
+        SELECT SUM(amount) AS total_income
+        FROM `{PROJECT_ID}.{DATASET}.income`
+        WHERE property_id = '{property_id}'
+    """
+    results = bq.query(query).result()
+    return [dict(row) for row in results]
+
+#4) Net Profit
+@app.get("/summary/profit/{property_id}")
+def net_profit(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+    query = f"""
+        SELECT
+            IFNULL((SELECT SUM(amount) FROM `{PROJECT_ID}.{DATASET}.income` WHERE property_id='{property_id}'),0)
+            -
+            IFNULL((SELECT SUM(amount) FROM `{PROJECT_ID}.{DATASET}.expenses` WHERE property_id='{property_id}'),0)
+        AS net_profit
+    """
+    results = bq.query(query).result()
+    return [dict(row) for row in results]
+
