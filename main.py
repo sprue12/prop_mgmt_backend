@@ -69,7 +69,7 @@ def get_property(property_id: str, bq: bigquery.Client = Depends(get_bq_client))
     query = f"""
         SELECT *
         FROM `{PROJECT_ID}.{DATASET}.properties`
-        WHERE property_id = '{property_id}'
+        WHERE property_id = {property_id}
     """
 
     results = bq.query(query).result()
@@ -89,7 +89,7 @@ def get_income(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
     query = f"""
         SELECT *
         FROM `{PROJECT_ID}.{DATASET}.income`
-        WHERE property_id = '{property_id}'
+        WHERE property_id = {property_id}
     """
     results = bq.query(query).result()
     return [dict(row) for row in results]
@@ -127,7 +127,7 @@ def get_expenses(property_id: str, bq: bigquery.Client = Depends(get_bq_client))
     query = f"""
         SELECT *
         FROM `{PROJECT_ID}.{DATASET}.expenses`
-        WHERE property_id = '{property_id}'
+        WHERE property_id = {property_id}
     """
     results = bq.query(query).result()
     return [dict(row) for row in results]
@@ -189,7 +189,7 @@ def create_property(property: Property, bq: bigquery.Client = Depends(get_bq_cli
 def delete_property(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
     query = f"""
         DELETE FROM `{PROJECT_ID}.{DATASET}.properties`
-        WHERE property_id = '{property_id}'
+        WHERE property_id = {property_id}
     """
     bq.query(query)
 
@@ -201,7 +201,7 @@ def total_income(property_id: str, bq: bigquery.Client = Depends(get_bq_client))
     query = f"""
         SELECT SUM(amount) AS total_income
         FROM `{PROJECT_ID}.{DATASET}.income`
-        WHERE property_id = '{property_id}'
+        WHERE property_id = {property_id}
     """
     results = bq.query(query).result()
     return [dict(row) for row in results]
