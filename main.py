@@ -211,9 +211,9 @@ def total_income(property_id: str, bq: bigquery.Client = Depends(get_bq_client))
 def net_profit(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
     query = f"""
         SELECT
-            IFNULL((SELECT SUM(amount) FROM `{PROJECT_ID}.{DATASET}.income` WHERE property_id='{property_id}'),0)
+            IFNULL((SELECT SUM(amount) FROM `{PROJECT_ID}.{DATASET}.income` WHERE property_id={property_id}),0)
             -
-            IFNULL((SELECT SUM(amount) FROM `{PROJECT_ID}.{DATASET}.expenses` WHERE property_id='{property_id}'),0)
+            IFNULL((SELECT SUM(amount) FROM `{PROJECT_ID}.{DATASET}.expenses` WHERE property_id={property_id}),0)
         AS net_profit
     """
     results = bq.query(query).result()
