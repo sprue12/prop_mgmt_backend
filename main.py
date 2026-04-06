@@ -28,6 +28,16 @@ def get_bq_client():
     finally:
         client.close()
 
+def property_exists(property_id: int, bq: bigquery.Client) -> bool:
+    query = f"""
+        SELECT 1
+        FROM `{PROJECT_ID}.{DATASET}.properties`
+        WHERE property_id = {property_id}
+        LIMIT 1
+    """
+    results = list(bq.query(query).result())
+    return len(results) > 0
+
 
 # ---------------------------------------------------------------------------
 # Properties Endpoints (2)
@@ -65,7 +75,7 @@ def get_properties(bq: bigquery.Client = Depends(get_bq_client)):
     return properties
 
 @app.get("/properties/{property_id}")
-def get_property(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+def get_property(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
     query = f"""
         SELECT *
         FROM `{PROJECT_ID}.{DATASET}.properties`
@@ -85,7 +95,7 @@ def get_property(property_id: str, bq: bigquery.Client = Depends(get_bq_client))
 #--------------------------------------------------------#
 
 @app.get("/income/{property_id}")
-def get_income(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+def get_income(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
     query = f"""
         SELECT *
         FROM `{PROJECT_ID}.{DATASET}.income`
@@ -102,7 +112,10 @@ class Income(BaseModel):
     source: str
 
 @app.post("/income/{property_id}")
-def add_income(property_id: str, income: Income, bq: bigquery.Client = Depends(get_bq_client)):
+def add_income(property_id: int, income: Income, bq: bigquery.Client = Depends(get_bq_client)):
+    if not property_exists(property_id, bq):
+        raise HTTPException(status_code=404, detail="Property not found")
+
     row = {
         "income_id": str(uuid.uuid4()),
         "property_id": property_id,
@@ -111,10 +124,19 @@ def add_income(property_id: str, income: Income, bq: bigquery.Client = Depends(g
     }
 
     table_id = f"{PROJECT_ID}.{DATASET}.income"
-    errors = bq.insert_rows_json(table_id, [row])
 
-    if errors:
-        raise HTTPException(status_code=500, detail=str(errors))
+    try:
+        errors = bq.insert_rows_json(table_id, [row])
+        if errors:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to insert income record: {errors}"
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database insert failed: {str(e)}"
+        )
 
     return {"message": "Income added", "data": row}
 
@@ -123,7 +145,7 @@ def add_income(property_id: str, income: Income, bq: bigquery.Client = Depends(g
 # -------------------------------------------------------------------------------
 
 @app.get("/expenses/{property_id}")
-def get_expenses(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+def get_expenses(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
     query = f"""
         SELECT *
         FROM `{PROJECT_ID}.{DATASET}.expenses`
@@ -137,7 +159,10 @@ class Expense(BaseModel):
     category: str
 
 @app.post("/expenses/{property_id}")
-def add_expense(property_id: str, expense: Expense, bq: bigquery.Client = Depends(get_bq_client)):
+def add_expense(property_id: int, expense: Expense, bq: bigquery.Client = Depends(get_bq_client)):
+    if not property_exists(property_id, bq):
+        raise HTTPException(status_code=404, detail="Property not found")
+
     row = {
         "expense_id": str(uuid.uuid4()),
         "property_id": property_id,
@@ -146,10 +171,19 @@ def add_expense(property_id: str, expense: Expense, bq: bigquery.Client = Depend
     }
 
     table_id = f"{PROJECT_ID}.{DATASET}.expenses"
-    errors = bq.insert_rows_json(table_id, [row])
 
-    if errors:
-        raise HTTPException(status_code=500, detail=str(errors))
+    try:
+        errors = bq.insert_rows_json(table_id, [row])
+        if errors:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to insert expense record: {errors}"
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database insert failed: {str(e)}"
+        )
 
     return {"message": "Expense added", "data": row}
 
@@ -171,33 +205,60 @@ class Property(BaseModel):
 
 @app.post("/properties")
 def create_property(property: Property, bq: bigquery.Client = Depends(get_bq_client)):
-    row = {
-        "property_id": str(uuid.uuid4()),
-        **property.dict()
-    }
+    try:
+        id_query = f"""
+            SELECT IFNULL(MAX(property_id), 0) + 1 AS next_id
+            FROM `{PROJECT_ID}.{DATASET}.properties`
+        """
+        id_result = list(bq.query(id_query).result())
+        next_id = id_result[0]["next_id"]
 
-    table_id = f"{PROJECT_ID}.{DATASET}.properties"
-    errors = bq.insert_rows_json(table_id, [row])
+        row = {
+            "property_id": next_id,
+            **property.dict()
+        }
 
-    if errors:
-        raise HTTPException(status_code=500, detail=str(errors))
+        table_id = f"{PROJECT_ID}.{DATASET}.properties"
+        errors = bq.insert_rows_json(table_id, [row])
 
-    return {"message": "Property created", "data": row}
+        if errors:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to create property: {errors}"
+            )
+
+        return {"message": "Property created", "data": row}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database insert failed: {str(e)}"
+        )
 
 # 2) Delete a Property
 @app.delete("/properties/{property_id}")
-def delete_property(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+def delete_property(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
+    if not property_exists(property_id, bq):
+        raise HTTPException(status_code=404, detail="Property not found")
+
     query = f"""
         DELETE FROM `{PROJECT_ID}.{DATASET}.properties`
         WHERE property_id = {property_id}
     """
-    bq.query(query)
+
+    try:
+        bq.query(query).result()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Delete failed: {str(e)}"
+        )
 
     return {"message": "Property deleted"}
 
 #3) Total Income Summary
 @app.get("/summary/income/{property_id}")
-def total_income(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+def total_income(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
     query = f"""
         SELECT SUM(amount) AS total_income
         FROM `{PROJECT_ID}.{DATASET}.income`
@@ -208,7 +269,7 @@ def total_income(property_id: str, bq: bigquery.Client = Depends(get_bq_client))
 
 #4) Net Profit
 @app.get("/summary/profit/{property_id}")
-def net_profit(property_id: str, bq: bigquery.Client = Depends(get_bq_client)):
+def net_profit(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
     query = f"""
         SELECT
             IFNULL((SELECT SUM(amount) FROM `{PROJECT_ID}.{DATASET}.income` WHERE property_id={property_id}),0)
