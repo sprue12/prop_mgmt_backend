@@ -117,13 +117,17 @@ def add_income(property_id: int, income: Income, bq: bigquery.Client = Depends(g
         raise HTTPException(status_code=404, detail="Property not found")
 
     row = {
+        "income_id": str(uuid.uuid4()),
         "property_id": property_id,
         "amount": income.amount,
         "source": income.source
     }
 
     table_id = f"{PROJECT_ID}.{DATASET}.income"
+    errors = bq.insert_rows_json(table_id, [row])
 
+    if errors:
+        raise HTTPException(status_code=500, detail=str(errors))
     try:
         errors = bq.insert_rows_json(table_id, [row])
         if errors:
@@ -163,13 +167,17 @@ def add_expense(property_id: int, expense: Expense, bq: bigquery.Client = Depend
         raise HTTPException(status_code=404, detail="Property not found")
 
     row = {
+        "expense_id": str(uuid.uuid4()),
         "property_id": property_id,
         "amount": expense.amount,
         "category": expense.category
     }
 
     table_id = f"{PROJECT_ID}.{DATASET}.expenses"
+    errors = bq.insert_rows_json(table_id, [row])
 
+    if errors:
+        raise HTTPException(status_code=500, detail=str(errors))
     try:
         errors = bq.insert_rows_json(table_id, [row])
         if errors:
@@ -243,6 +251,7 @@ def delete_property(property_id: int, bq: bigquery.Client = Depends(get_bq_clien
         DELETE FROM `{PROJECT_ID}.{DATASET}.properties`
         WHERE property_id = {property_id}
     """
+    bq.query(query)
 
     try:
         bq.query(query).result()
@@ -277,4 +286,3 @@ def net_profit(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
     """
     results = bq.query(query).result()
     return [dict(row) for row in results]
-
