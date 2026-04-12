@@ -117,7 +117,6 @@ def add_income(property_id: int, income: Income, bq: bigquery.Client = Depends(g
         raise HTTPException(status_code=404, detail="Property not found")
 
     row = {
-        "income_id": str(uuid.uuid4()),
         "property_id": property_id,
         "amount": income.amount,
         "source": income.source
@@ -164,7 +163,6 @@ def add_expense(property_id: int, expense: Expense, bq: bigquery.Client = Depend
         raise HTTPException(status_code=404, detail="Property not found")
 
     row = {
-        "expense_id": str(uuid.uuid4()),
         "property_id": property_id,
         "amount": expense.amount,
         "category": expense.category
