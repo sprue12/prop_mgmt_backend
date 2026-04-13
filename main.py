@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from google.cloud import bigquery
+from datetime import date
 
 app = FastAPI()
 
@@ -109,7 +110,7 @@ import uuid
 
 class Income(BaseModel):
     amount: float
-    source: str
+    description: str
 
 @app.post("/income/{property_id}")
 def add_income(property_id: int, income: Income, bq: bigquery.Client = Depends(get_bq_client)):
@@ -117,29 +118,20 @@ def add_income(property_id: int, income: Income, bq: bigquery.Client = Depends(g
         raise HTTPException(status_code=404, detail="Property not found")
 
     row = {
-        "income_id": str(uuid.uuid4()),
         "property_id": property_id,
         "amount": income.amount,
-        "source": income.source
+        "description": income.description,
+        "date": str(date.today())
     }
 
     table_id = f"{PROJECT_ID}.{DATASET}.income"
-    errors = bq.insert_rows_json(table_id, [row])
 
-    if errors:
-        raise HTTPException(status_code=500, detail=str(errors))
     try:
         errors = bq.insert_rows_json(table_id, [row])
         if errors:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to insert income record: {errors}"
-            )
+            raise HTTPException(status_code=500, detail=str(errors))
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database insert failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Database insert failed: {str(e)}")
 
     return {"message": "Income added", "data": row}
 
@@ -167,30 +159,20 @@ def add_expense(property_id: int, expense: Expense, bq: bigquery.Client = Depend
         raise HTTPException(status_code=404, detail="Property not found")
 
     row = {
-        "expense_id": str(uuid.uuid4()),
-        "property_id": property_id,
-        "amount": expense.amount,
-        "category": expense.category
+    "property_id": property_id,
+    "amount": expense.amount,
+    "category": expense.category,
+    "date": str(date.today())
     }
 
     table_id = f"{PROJECT_ID}.{DATASET}.expenses"
-    errors = bq.insert_rows_json(table_id, [row])
 
-    if errors:
-        raise HTTPException(status_code=500, detail=str(errors))
     try:
         errors = bq.insert_rows_json(table_id, [row])
         if errors:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to insert expense record: {errors}"
-            )
+                raise HTTPException(status_code=500, detail=str(errors))
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database insert failed: {str(e)}"
-        )
-
+        raise HTTPException(status_code=500, detail=f"Database insert failed: {str(e)}")
     return {"message": "Expense added", "data": row}
 
 # ----------------------------------------------------------------------------------
@@ -226,7 +208,6 @@ def create_property(property: Property, bq: bigquery.Client = Depends(get_bq_cli
 
         table_id = f"{PROJECT_ID}.{DATASET}.properties"
         errors = bq.insert_rows_json(table_id, [row])
-
         if errors:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -251,15 +232,11 @@ def delete_property(property_id: int, bq: bigquery.Client = Depends(get_bq_clien
         DELETE FROM `{PROJECT_ID}.{DATASET}.properties`
         WHERE property_id = {property_id}
     """
-    bq.query(query)
 
     try:
         bq.query(query).result()
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Delete failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
     return {"message": "Property deleted"}
 
